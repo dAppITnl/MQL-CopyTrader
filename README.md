@@ -30,21 +30,24 @@ The Publishers do not need to log in with a trading password, just log in and us
 ## License
 
 Copyright (c) 2017-2021 Ji-Feng Tsai.  
+Copyright (c) 2022.. TradingDemon & DAppIT
 MQL-Zmq Copyright (c) Ding Li [ZeroMQ for MQL](https://github.com/dingmaotu).  
 
 Code released under the MIT license.
 
+## Extended / Improved
+
+- Print / Alert messages
+- Ability to recalculate lots at client side with clientEquity / publisherEquity ratio and with a multiply factor
+
 ## TODO
 
-- Trading hours during which the subscriber is allowed to trade (Solved)  
-- Invert original trade direction (Solved)  
-- Copy orders with specific Symbols (Solved)  
-- More examples  
+- Set TP's at client side same as publisher when trailing trades at publisher are created, now only new trade gets same TP as publisher
 
 ## Donation
 
-If this application help you reduce time to trading, you can give me a cup of coffee :)
+If this application help you reduce time to trading, you can give me a cup of thee :)
 
-[![paypal](https://www.paypalobjects.com/en_US/TW/i/btn/btn_donateCC_LG.gif)](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=3RNMD6Q3B495N&source=url)
+[![paypal](https://www.paypalobjects.com/en_US/i/btn/btn_donate_SM.gif)](https://www.paypal.com/donate/?hosted_button_id=85P2F2W7D8VCA)
 
-[Paypal Me](https://paypal.me/jiowcl?locale.x=zh_TW)
+[Paypal Me](https://paypal.me/dAppITNL?locale.x=nl_NL)
