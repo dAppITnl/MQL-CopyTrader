@@ -1,25 +1,36 @@
 //+------------------------------------------------------------------+
+//|                                           MT4CopierPublisher.mq4 |
+//|                            Copyright 2022, TradingDemon & DAppIT |
+//|                                   https://www.123FxBotTraden.com |
+//+------------------------------------------------------------------+
+#property copyright "Copyright 2022, TradingDemon & DAppIT"
+#property link      "https://www.123FxBotTraden.com"
+#property version   "1.01"
+
+//+------------------------------------------------------------------+
 //|                                        JiowclPublisherServer.mq4 |
 //|                                Copyright 2017-2021, Ji-Feng Tsai |
 //|                                        https://github.com/jiowcl |
 //+------------------------------------------------------------------+
-#property copyright   "Copyright 2021, Ji-Feng Tsai"
-#property link        "https://github.com/jiowcl/MQL-CopyTrade"
-#property version     "1.12"
-#property description "MT4 Copy Trade Publisher Application. Push all order-to-subscribers."
+//#property copyright   "Copyright 2021, Ji-Feng Tsai"
+//#property link        "https://github.com/jiowcl/MQL-CopyTrade"
+//#property version     "1.12"
+#property description "MT4 Copy Trade Publisher Application. Push all orders to subscribers."
 #property strict
+
 #property show_inputs
 
+// Source: https://github.com/dingmaotu/mql-zmq
 #include <Zmq/Zmq.mqh>
 
 //--- Inputs
-input string Server                  = "tcp://*:5559";  // Push server ip
+input string Server                  = "tcp://*:5558";  // Push server ip
 input uint   ServerDelayMilliseconds = 300;             // Push to clients delay milliseconds (Default is 300)
 input bool   ServerReal              = false;           // Under real server (Default is false)
 input string AllowSymbols            = "";              // Allow Trading Symbols (Ex: EURUSDq,EURUSDx,EURUSDa)
 
 //--- Globales Application
-const string app_name    = "Jiowcl Expert Advisor";
+const string app_name    = "MT4 Copier Publisher";
 
 //--- Globales ZMQ
 Context context;
@@ -53,11 +64,12 @@ void OnStart()
   {  
     if (DetectEnvironment() == false)
       {
-        Alert("Error: The property is fail, please check and try again.");
+        AlertMsg("Error: Incorrect environment, please check and try again.");
         return;
       }
       
     StartZmqServer();
+    PrintMsg("Started...");
   }
 
 //+------------------------------------------------------------------+
@@ -66,6 +78,7 @@ void OnStart()
 void OnDeinit(const int reason)
   {
     StopZmqServer();
+    PrintMsg("Stopped...");
   }
 
 //+------------------------------------------------------------------+
@@ -73,21 +86,25 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 bool DetectEnvironment()
   {
-    if (Server == "") 
-      return false;
+    if (Server == "")
+      {
+        AlertMsg("Unknown server, correct settings!"); 
+        return false;
+      }
     
     if (ServerReal == true && IsDemo())
       {
-        Print("Account is Demo, please switch the Demo account to Real account.");
+        AlertMsg("Account is Demo, please switch the Demo account to Real account.");
         return false;
       }
       
     if (IsDllsAllowed() == false)
       {
-        Print("DLL call is not allowed. ", app_name, " cannot run.");
+        AlertMsg("DLL call is not allowed. " + app_name + " cannot run.");
         return false;
       }
     
+    PrintMsg("Server is " + Server);
     zmq_server        = Server;
     zmq_pushdelay     = (ServerDelayMilliseconds > 0) ? ServerDelayMilliseconds : 10;
     zmq_runningstatus = false;
@@ -110,6 +127,7 @@ bool DetectEnvironment()
           }
           
         symbolallow_size = symbolsize;
+        PrintMsg(IntegerToString(symbolallow_size) + " allowed symbols set: " + AllowSymbols);
       }
 
     return true;
@@ -121,17 +139,20 @@ bool DetectEnvironment()
 void StartZmqServer()
   {  
     if (zmq_server == "")
-      return;
+      {
+        AlertMsg("Error: Invalid server, correct settings!");
+        return;
+      }
       
     int result = publisher.bind(zmq_server);
     
     if (result != 1)
       {
-        Alert("Error: Unable to bind server, please check your port.");
+        AlertMsg("Error: Unable to bind server, please check your port.");
         return;
       }
     
-    Print("Load Server: ", zmq_server);
+    PrintMsg("Load & start Server: " + zmq_server);
     
     // Init all the current orders to cache.
     // The signal only sends a new order or modify order.
@@ -164,8 +185,11 @@ void StartZmqServer()
 //+------------------------------------------------------------------+
 void StopZmqServer()
   {
-    if (zmq_server == "") 
-      return;
+    if (zmq_server == "")
+      { 
+        AlertMsg("Error: Invalid server, correct settings!");
+        return;
+      }
     
     ArrayFree(orderids);
     ArrayFree(orderopenprice);
@@ -174,7 +198,7 @@ void StopZmqServer()
     ArrayFree(ordertp);
     ArrayFree(local_symbolallow);
     
-    Print("Unload Server: ", zmq_server);
+    PrintMsg("Stop & Unload Server: " + zmq_server);
     
     if (zmq_runningstatus == true)
       publisher.unbind(zmq_server);
@@ -299,9 +323,11 @@ int PushOrderOpen()
             if (GetOrderSymbolAllowed(OrderSymbol()) == false)
               continue;
 
-            Print("Order Added:", OrderSymbol(), ", Size:", ArraySize(orderids), ", OrderId:", OrderTicket());
+            PrintMsg("Order pushed: " + OrderSymbol()
+                + ", Size: " + IntegerToString(ArraySize(orderids))
+                + ", OrderId: " + IntegerToString(OrderTicket()));
                 
-            PushToSubscriber(StringFormat("%d %s|%s|%d|%d|%f|%f|%f|%f|%f", 
+            PushToSubscriber(StringFormat("%d %s|%s|%d|%d|%f|%f|%f|%f|%f|%f", 
               AccountInfoInteger(ACCOUNT_LOGIN),
               "OPEN",
               OrderSymbol(), 
@@ -311,7 +337,8 @@ int PushOrderOpen()
               OrderClosePrice(),
               OrderLots(), 
               OrderStopLoss(), 
-              OrderTakeProfit()
+              OrderTakeProfit(),
+              AccountEquity()
             ));
                  
             changed ++;
@@ -342,9 +369,11 @@ int PushOrderClosed()
             if (GetOrderSymbolAllowed(OrderSymbol()) == false)
               continue;
 
-            Print("Order Closed:", OrderSymbol(), ", Size:", ArraySize(orderids), ", OrderId:", OrderTicket());
+            PrintMsg("Order Closed: " + OrderSymbol()
+              + ", Size: " + IntegerToString(ArraySize(orderids))
+              + ", OrderId:" + IntegerToString(OrderTicket()));
 
-            PushToSubscriber(StringFormat("%d %s|%s|%d|%d|%f|%f|%f|%f|%f", 
+            PushToSubscriber(StringFormat("%d %s|%s|%d|%d|%f|%f|%f|%f|%f|%f", 
               AccountInfoInteger(ACCOUNT_LOGIN),
               "CLOSED",
               OrderSymbol(), 
@@ -354,7 +383,8 @@ int PushOrderClosed()
               OrderClosePrice(),
               OrderLots(), 
               OrderStopLoss(), 
-              OrderTakeProfit()
+              OrderTakeProfit(),
+              AccountEquity()
             ));
 
             changed ++;
@@ -415,26 +445,32 @@ int PushOrderModify()
           {
             if (orderpartiallyclosed == true)
               {
-                Print("Partially Closed:", OrderSymbol(), ", Size:", ArraySize(orderids), ", OrderId:", OrderTicket(), ", Before OrderId: ", orderpartiallyclosedid);
+                PrintMsg("Partially Closed: " + OrderSymbol()
+                  + ", Size: " + IntegerToString(ArraySize(orderids))
+                  + ", OrderId: " + IntegerToString(OrderTicket())
+                  + ", Before OrderId: " + IntegerToString(orderpartiallyclosedid));
                 
-                PushToSubscriber(StringFormat("%d %s|%s|%s|%d|%f|%f|%f|%f|%f", 
+                PushToSubscriber(StringFormat("%d %s|%s|%s|%d|%f|%f|%f|%f|%f|%f", 
                   AccountInfoInteger(ACCOUNT_LOGIN),
                   "PCLOSED",
                   OrderSymbol(), 
-                  OrderTicket() + "_" + orderpartiallyclosedid,
+                  IntegerToString(OrderTicket()) + "_" + IntegerToString(orderpartiallyclosedid),
                   OrderType(), 
                   OrderOpenPrice(),
                   OrderClosePrice(),
                   OrderLots(), 
                   OrderStopLoss(), 
-                  OrderTakeProfit()
+                  OrderTakeProfit(),
+                  AccountEquity()
                 ));
               }
             else
               {
-                Print("Order Modify:", OrderSymbol(), ", Size:", ArraySize(orderids), ", OrderId:", OrderTicket());
+                PrintMsg("Order Modify: " + OrderSymbol()
+                  + ", Size: " + IntegerToString(ArraySize(orderids))
+                  + ", OrderId: " + IntegerToString(OrderTicket()));
               
-                PushToSubscriber(StringFormat("%d %s|%s|%d|%d|%f|%f|%f|%f|%f", 
+                PushToSubscriber(StringFormat("%d %s|%s|%d|%d|%f|%f|%f|%f|%f|%f", 
                   AccountInfoInteger(ACCOUNT_LOGIN),
                   "MODIFY",
                   OrderSymbol(), 
@@ -444,7 +480,8 @@ int PushOrderModify()
                   OrderClosePrice(),
                   OrderLots(), 
                   OrderStopLoss(), 
-                  OrderTakeProfit()
+                  OrderTakeProfit(),
+                  AccountEquity()
                 ));
               }
             
@@ -519,4 +556,15 @@ bool FindOrderInPrevPool(const int order_ticketid)
       }
       
     return (orderfound > 0) ? true : false;
+  }
+
+void PrintMsg(const string msg)
+  {
+    Print(msg);
+  }
+
+void AlertMsg(const string msg)
+  {
+    PrintMsg(msg);
+    Alert(app_name + ": " + msg);
   }

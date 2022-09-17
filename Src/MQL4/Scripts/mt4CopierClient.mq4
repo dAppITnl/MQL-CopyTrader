@@ -1,19 +1,32 @@
 //+------------------------------------------------------------------+
+//|                                              mt4CopierClient.mq4 |
+//|                            Copyright 2022, TradingDemon & DAppIT |
+//|                                   https://www.123FxBotTraden.com |
+//+------------------------------------------------------------------+
+#property copyright "Copyright 2022, TradingDemon & DAppIT"
+#property link      "https://www.123FxBotTraden.com"
+#property version   "1.01"
+
+//+------------------------------------------------------------------+
 //|                                       JiowclSubscriberClient.mq4 |
 //|                                Copyright 2017-2021, Ji-Feng Tsai |
 //|                                        https://github.com/jiowcl |
 //+------------------------------------------------------------------+
-#property copyright   "Copyright 2021, Ji-Feng Tsai"
-#property link        "https://github.com/jiowcl/MQL-CopyTrade"
-#property version     "1.12"
+//#property copyright   "Copyright 2021, Ji-Feng Tsai"
+//#property link        "https://github.com/jiowcl/MQL-CopyTrade"
+//#property version     "1.12"
 #property description "MT4 Copy Trade Subscriber Application. Subscribe order status from source signal trader."
 #property strict
+
 #property show_inputs
 
+#include <stdlib.mqh>
+
+// Source: https://github.com/dingmaotu/mql-zmq
 #include <Zmq/Zmq.mqh>
 
 //--- Inputs
-input string Server                  = "tcp://localhost:5559";  // Subscribe server ip
+input string Server                  = "tcp://localhost:5558";  // Subscribe server ip
 input uint   ServerDelayMilliseconds = 300;                     // Subscribe from server delay milliseconds (Default is 300)
 input bool   ServerReal              = false;                   // Under real server (Default is false)
 input string SignalAccount           = "";                      // Subscribe signal account from server (Default is empty) 
@@ -28,6 +41,8 @@ input string AllowSymbols            = "";                      // Allow Trading
 input bool   InvertOrder             = false;                   // Invert original trade direction (Default is false)
 input double MinFreeMargin           = 0.00;                    // Minimum Free Margin to Open a New Order (Default is 0.00)
 input string SymbolPrefixAdjust      = "";                      // Adjust the Symbol Name as Local Symbol Name (Ex: d=q,d=)
+input bool   PropLotPubClnRatio      = true;                    // Proportional lot based on Publisher/Client Equity ratio
+input double LotMulPropLot           = 1.00;                    // if Proportional lot, multiply the result by
 
 //--- Globales Struct
 struct ClosedOrder 
@@ -45,7 +60,7 @@ struct SymbolPrefix
   };
 
 //--- Globales Application
-const string app_name    = "Jiowcl Expert Advisor";
+const string app_name    = "mt4 Copier Client";
 
 //--- Globales ZMQ
 Context context;
@@ -86,11 +101,12 @@ void OnStart()
   { 
     if (DetectEnvironment() == false)
       {
-        Alert("Error: The property is fail, please check and try again.");
+        AlertMsg("Error: The property is fail, please check and try again.");
         return;
       }
     
     StartZmqClient();
+    PrintMsg("Started...");
   }
 
 //+------------------------------------------------------------------+
@@ -99,6 +115,7 @@ void OnStart()
 void OnDeinit(const int reason)
   {    
     StopZmqClient();
+    PrintMsg("Stopped...");
   }
 
 //+------------------------------------------------------------------+
@@ -106,18 +123,21 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 bool DetectEnvironment()
   {
-    if (Server == "") 
-      return false;
+    if (Server == "")
+      {
+        AlertMsg("Unknown server, correct settings!");  
+        return false;
+      }
     
     if (ServerReal == true && IsDemo())
       {
-        Print("Account is Demo, please switch the Demo account to Real account.");
+        AlertMsg("Account is Demo, please switch the Demo account to Real account.");
         return false;
       }
       
     if (IsDllsAllowed() == false)
       {
-        Print("DLL call is not allowed. ", app_name, " cannot run.");
+        AlertMsg("DLL call is not allowed. " + app_name + " cannot run.");
         return false;
       }
     
@@ -179,6 +199,7 @@ bool DetectEnvironment()
           }
           
         symbolallow_size = symbolsize;
+        PrintMsg(IntegerToString(symbolallow_size) + " allowed symbols set: " + AllowSymbols);
       }
 
     return true;
@@ -189,14 +210,17 @@ bool DetectEnvironment()
 //+------------------------------------------------------------------+
 void StartZmqClient()
   {
-    if (zmq_server == "") 
-      return;
+    if (zmq_server == "")
+      {
+        AlertMsg("Error: Invalid server, correct settings!");
+        return;
+      }
     
     int result = subscriber.connect(zmq_server);
     
     if (result != 1)
       {
-        Alert("Error: Unable to connect to the server, please check your server settings.");
+        AlertMsg("Error: Unable to connect to the server, please check your server settings.");
         return;
       }
     
@@ -216,10 +240,10 @@ void StartZmqClient()
     
     zmq_runningstatus = true;
     
-    Print("Load Subscribe: ", zmq_server);
+    PrintMsg("Load Subscribe: " + zmq_server);
     
     if (account_subscriber > 0)
-      Print("Signal Account: " + account_subscriber);
+      PrintMsg("Signal Account: " + IntegerToString(account_subscriber));
     
     while (!IsStopped())
       {
@@ -256,13 +280,16 @@ void StartZmqClient()
 //+------------------------------------------------------------------+
 void StopZmqClient()
   {
-    if (zmq_server == "") 
-      return;
+    if (zmq_server == "")
+      {
+        AlertMsg("Error: Invalid server, correct settings!");
+        return;
+      }
     
     // Save local closed order to file
     LocalClosedDataToFile();
     
-    Print("UnLoad Subscribe: ", zmq_server);
+    PrintMsg("UnLoad Subscribe: " + zmq_server);
        
     ArrayFree(local_pclosed);
     ArrayFree(local_symbolprefix);
@@ -327,7 +354,8 @@ bool ParseOrderFromSingal(const int login,
     double lots          = StringToDouble(orderdata[6]);
     double sl            = StringToDouble(orderdata[7]);
     double tp            = StringToDouble(orderdata[8]);
-    
+    double pubequity     = StringToDouble(orderdata[9]);
+        
     string orderiddata[];
     int    orderidsize = StringSplit(orderdata[2], '_', orderiddata);
     
@@ -345,6 +373,11 @@ bool ParseOrderFromSingal(const int login,
         orderid = StrToInteger(orderdata[2]);
       }
     
+    if (PropLotPubClnRatio && pubequity != 0.00)
+    {
+       lots *= (AccountEquity() / pubequity) * LotMulPropLot;
+    }
+
     return MakeOrder(login, op, symbol, orderid, beforeorderid, type, openprice, closeprice, lots, sl, tp);
   }
 
@@ -382,7 +415,9 @@ bool MakeOrder(const int login,
           {
             ticketid = MakeOrderOpen(symbol, type, openprice, lots, sl, tp, comment);
           
-            Print("Open:", symbol, ", Type:", type, ", TicketId:", ticketid);
+            PrintMsg("Open: " + symbol
+              + ", Type: " + IntegerToString(type)
+              + ", TicketId: " + IntegerToString(ticketid));
           }
       }
     else if (op == "CLOSED")
@@ -398,7 +433,8 @@ bool MakeOrder(const int login,
           {
             orderstatus = MakeOrderClose(ticketid, symbol, type, closeprice, lots, sl, tp);
             
-            Print("Closed:", symbol, ", Type:", type);
+            PrintMsg("Closed: " + symbol
+              + ", Type: " + IntegerToString(type));
           }
       }
     else if (op == "PCLOSED")
@@ -411,7 +447,8 @@ bool MakeOrder(const int login,
             localstatus = LocalClosedDataSave(login, orderid, beforeorderid, ticketid);
             orderstatus = MakeOrderPartiallyClose(ticketid, symbol, type, closeprice, lots, sl, tp);
           
-            Print("Partially Closed:", symbol, ", Type:", type);
+            PrintMsg("Partially Closed: " + symbol
+              + ", Type: " + IntegerToString(type));
           }
       }
     else if (op == "MODIFY")
@@ -427,7 +464,8 @@ bool MakeOrder(const int login,
           {
             orderstatus = MakeOrderModify(ticketid, symbol, openprice, sl, tp);
           
-            Print("Modify:", symbol, ", Type:", type);
+            PrintMsg("Modify: " + symbol
+              + ", Type: " + IntegerToString(type));
           }
       }
     
@@ -913,7 +951,10 @@ void LocalClosedDataToMemory()
       }
     else
       {
-        Print("Failed to open the closed order file, error ", GetLastError());
+        int errornr = GetLastError();
+        AlertMsg("Failed to open the closed order file, error: " 
+          + IntegerToString(errornr)
+          + " = " + ErrorDescription(errornr));
       }
   }
   
@@ -937,6 +978,21 @@ void LocalClosedDataToFile()
       }
     else
       {
-        Print("Failed to open the closed order file, error ", GetLastError());
+        int errornr = GetLastError();
+        AlertMsg("Failed to open the closed order file, error: "
+          + IntegerToString(errornr)
+          + " = " + ErrorDescription(errornr));
       }
   }
+
+void PrintMsg(const string msg)
+  {
+    Print(msg);
+  }
+
+void AlertMsg(const string msg)
+  {
+    PrintMsg(msg);
+    Alert(app_name + ": " + msg);
+  }
+
