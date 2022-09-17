@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2022, TradingDemon & DAppIT"
 #property link      "https://www.123FxBotTraden.com"
-#property version   "1.01"
+#property version   "1.02"
 
 //+------------------------------------------------------------------+
 //|                                       JiowclSubscriberClient.mq4 |
@@ -374,9 +374,18 @@ bool ParseOrderFromSingal(const int login,
       }
     
     if (PropLotPubClnRatio && pubequity != 0.00)
-    {
-       lots *= (AccountEquity() / pubequity) * LotMulPropLot;
-    }
+      {
+        double lots1 = lots;
+        double accequity = AccountEquity();
+ 
+        lots *= (accequity / pubequity) * LotMulPropLot;
+ 
+        PrintMsg("lots = " + DoubleToString(lots1,5)
+          + " * (" + DoubleToString(accequity,5)
+          + " / " + DoubleToString(pubequity,5)
+          + ") * " + DoubleToString(LotMulPropLot,5)
+          + " = " + DoubleToString(lots,5));
+      }
 
     return MakeOrder(login, op, symbol, orderid, beforeorderid, type, openprice, closeprice, lots, sl, tp);
   }
